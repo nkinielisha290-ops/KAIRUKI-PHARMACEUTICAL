@@ -1,40 +1,11 @@
-// Kairuki Pharmaceutical POS — data is stored in the browser's localStorage.
+// Kairuki Pharmaceutical POS — data lives in Supabase; access is enforced by RLS.
 
-const STORE_KEYS = { products: 'kp_products', sales: 'kp_sales' };
-
-const SEED_PRODUCTS = [
-  { code: 'PAR500', name: 'Paracetamol 500mg (10 tabs)', price: 1000, stock: 200 },
-  { code: 'AMX250', name: 'Amoxicillin 250mg (10 caps)', price: 3000, stock: 120 },
-  { code: 'ALU20', name: 'Artemether/Lumefantrine (ALu) 20/120', price: 6500, stock: 80 },
-  { code: 'IBU400', name: 'Ibuprofen 400mg (10 tabs)', price: 1500, stock: 150 },
-  { code: 'ORS01', name: 'ORS sachet', price: 500, stock: 300 },
-  { code: 'MET500', name: 'Metformin 500mg (30 tabs)', price: 4500, stock: 60 },
-  { code: 'CTZ10', name: 'Cetirizine 10mg (10 tabs)', price: 2000, stock: 90 },
-  { code: 'VITC', name: 'Vitamin C 500mg (20 tabs)', price: 2500, stock: 8 },
-];
+const db = window.supabase.createClient(window.KP_CONFIG.supabaseUrl, window.KP_CONFIG.supabaseKey);
 
 const LOW_STOCK = 10;
 
-function load(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function save(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // Storage unavailable (private mode etc.) — keep working in memory.
-  }
-}
-
-const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
-const money = (n) => 'TZS ' + Math.round(n).toLocaleString('en-US');
-const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => (
+const money = (n) => 'TZS ' + Math.round(Number(n)).toLocaleString('en-US');
+const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
 ));
 const localDate = (d) => {
@@ -43,27 +14,183 @@ const localDate = (d) => {
 };
 const $ = (id) => document.getElementById(id);
 
-let products = load(STORE_KEYS.products, null);
-if (!products) {
-  products = SEED_PRODUCTS.map((p) => ({ id: uid(), ...p }));
-  save(STORE_KEYS.products, products);
-}
-let sales = load(STORE_KEYS.sales, []);
+let user = null;
+let role = null;
+let products = [];
 let cart = []; // { productId, qty }
+let historySales = [];
 
 const findProduct = (id) => products.find((p) => p.id === id);
+const isAdmin = () => role === 'admin';
+
+function setMsg(el, text, kind = '') {
+  $(el).textContent = text;
+  $(el).className = 'msg ' + kind;
+}
+
+// ---------- Screens & auth ----------
+function show(screen) {
+  for (const id of ['loading-screen', 'auth-screen', 'denied-screen', 'app']) {
+    $(id).hidden = id !== screen;
+  }
+}
+
+let signUpMode = false;
+$('auth-toggle').addEventListener('click', () => {
+  signUpMode = !signUpMode;
+  $('auth-submit').textContent = signUpMode ? 'Create account' : 'Sign in';
+  $('auth-toggle-text').textContent = signUpMode ? 'Already have an account?' : 'New staff member?';
+  $('auth-toggle').textContent = signUpMode ? 'Sign in' : 'Create an account';
+  $('auth-password').autocomplete = signUpMode ? 'new-password' : 'current-password';
+  setMsg('auth-msg', '');
+});
+
+$('auth-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = $('auth-email').value.trim();
+  const password = $('auth-password').value;
+  $('auth-submit').disabled = true;
+  setMsg('auth-msg', '');
+  try {
+    if (signUpMode) {
+      const { data, error } = await db.auth.signUp({
+        email, password, options: { emailRedirectTo: location.origin + location.pathname },
+      });
+      if (error) throw error;
+      if (!data.session) setMsg('auth-msg', 'Check your email to confirm your account, then sign in.', 'ok');
+    } else {
+      const { error } = await db.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+    }
+  } catch (err) {
+    setMsg('auth-msg', err.message, 'error');
+  } finally {
+    $('auth-submit').disabled = false;
+  }
+});
+
+document.querySelectorAll('[data-signout]').forEach((b) => b.addEventListener('click', () => db.auth.signOut()));
+
+async function onSession(session) {
+  user = session?.user ?? null;
+  if (!user) {
+    role = null;
+    cart = [];
+    show('auth-screen');
+    return;
+  }
+  show('loading-screen');
+  const { data } = await db.rpc('staff_role');
+  role = data;
+  if (!role) {
+    $('denied-email').textContent = user.email;
+    show('denied-screen');
+    return;
+  }
+  document.body.classList.toggle('is-admin', isAdmin());
+  $('user-email').textContent = user.email;
+  $('user-role').textContent = role;
+  show('app');
+  switchView('sell');
+  await loadProducts();
+  renderCart();
+}
+
+let lastUserId;
+db.auth.onAuthStateChange((event, session) => {
+  // Token refreshes fire this too; only rebuild when the signed-in user changes.
+  const id = session?.user?.id ?? null;
+  if (id === lastUserId && event !== 'SIGNED_OUT') return;
+  lastUserId = id;
+  // Defer so Supabase isn't called from inside its own auth callback.
+  setTimeout(() => onSession(session), 0);
+});
 
 // ---------- Tabs ----------
-document.querySelectorAll('.tab').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', b === btn));
-    document.querySelectorAll('.view').forEach((v) => {
-      v.classList.toggle('active', v.id === 'view-' + btn.dataset.view);
-    });
-    if (btn.dataset.view === 'products') renderProducts();
-    if (btn.dataset.view === 'history') renderHistory();
-    if (btn.dataset.view === 'sell') renderResults();
-  });
+function switchView(view) {
+  document.querySelectorAll('.tab[data-view]').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
+  document.querySelectorAll('.view').forEach((v) => v.classList.toggle('active', v.id === 'view-' + view));
+  if (view === 'products') loadProducts();
+  if (view === 'history') loadHistory();
+  if (view === 'staff') loadStaff();
+  if (view === 'sell') loadProducts();
+}
+document.querySelectorAll('.tab[data-view]').forEach((btn) => {
+  btn.addEventListener('click', () => switchView(btn.dataset.view));
+});
+
+// ---------- Products ----------
+async function loadProducts() {
+  const { data, error } = await db.from('products').select('*').order('name');
+  if (error) return setMsg('sell-msg', 'Could not load products: ' + error.message, 'error');
+  products = data.map((p) => ({ ...p, price: Number(p.price) }));
+  cart = cart.filter((l) => findProduct(l.productId));
+  renderResults();
+  renderProducts();
+  renderCart();
+}
+
+function renderProducts() {
+  $('products-body').innerHTML = products.map((p) => `
+    <tr class="${p.stock <= LOW_STOCK ? 'low' : ''}">
+      <td>${escapeHtml(p.code)}</td>
+      <td>${escapeHtml(p.name)}</td>
+      <td class="num">${money(p.price)}</td>
+      <td class="num">${p.stock}${p.stock <= LOW_STOCK ? ' ⚠' : ''}</td>
+      <td class="num admin-only">
+        <button class="link" data-edit="${p.id}">Edit</button>
+        <button class="link danger" data-delete="${p.id}">Delete</button>
+      </td>
+    </tr>`).join('');
+}
+
+function resetProductForm() {
+  $('product-form').reset();
+  $('p-id').value = '';
+}
+
+$('product-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = $('p-id').value;
+  const row = {
+    code: $('p-code').value.trim(),
+    name: $('p-name').value.trim(),
+    price: Number($('p-price').value),
+    stock: Math.floor(Number($('p-stock').value)),
+  };
+  const { error } = id
+    ? await db.from('products').update(row).eq('id', id)
+    : await db.from('products').insert(row);
+  if (error) {
+    const text = error.code === '23505' ? `Code "${row.code}" is already used.` : error.message;
+    return setMsg('product-msg', text, 'error');
+  }
+  setMsg('product-msg', 'Saved.', 'ok');
+  resetProductForm();
+  loadProducts();
+});
+
+$('p-reset').addEventListener('click', () => { resetProductForm(); setMsg('product-msg', ''); });
+
+$('products-body').addEventListener('click', async (e) => {
+  const editId = e.target.dataset.edit;
+  const deleteId = e.target.dataset.delete;
+  if (editId) {
+    const p = findProduct(editId);
+    $('p-id').value = p.id;
+    $('p-code').value = p.code;
+    $('p-name').value = p.name;
+    $('p-price').value = p.price;
+    $('p-stock').value = p.stock;
+    $('p-name').focus();
+  }
+  if (deleteId) {
+    const p = findProduct(deleteId);
+    if (!confirm(`Delete ${p.name}? Past receipts keep its name and price.`)) return;
+    const { error } = await db.from('products').delete().eq('id', deleteId);
+    if (error) return setMsg('product-msg', error.message, 'error');
+    loadProducts();
+  }
 });
 
 // ---------- Sell ----------
@@ -89,12 +216,12 @@ function addToCart(productId) {
   if (!p || p.stock <= 0) return;
   const line = cart.find((l) => l.productId === productId);
   if (line) {
-    if (line.qty >= p.stock) return setMsg(`Only ${p.stock} of ${p.name} in stock.`, 'error');
+    if (line.qty >= p.stock) return setMsg('sell-msg', `Only ${p.stock} of ${p.name} in stock.`, 'error');
     line.qty++;
   } else {
     cart.push({ productId, qty: 1 });
   }
-  setMsg('');
+  setMsg('sell-msg', '');
   renderCart();
 }
 
@@ -133,7 +260,7 @@ $('cart-body').addEventListener('change', (e) => {
   let qty = Math.floor(Number(e.target.value)) || 1;
   if (qty > p.stock) {
     qty = p.stock;
-    setMsg(`Only ${p.stock} of ${p.name} in stock.`, 'error');
+    setMsg('sell-msg', `Only ${p.stock} of ${p.name} in stock.`, 'error');
   }
   line.qty = Math.max(1, qty);
   renderCart();
@@ -148,80 +275,64 @@ $('cart-body').addEventListener('click', (e) => {
 
 $('discount').addEventListener('input', renderCart);
 $('paid').addEventListener('input', renderCart);
-$('clear-cart').addEventListener('click', () => {
+
+function resetSale() {
   cart = [];
   $('discount').value = 0;
   $('paid').value = '';
-  setMsg('');
   renderCart();
-});
-
-function setMsg(text, kind = '') {
-  $('sell-msg').textContent = text;
-  $('sell-msg').className = 'msg ' + kind;
 }
+$('clear-cart').addEventListener('click', () => { resetSale(); setMsg('sell-msg', ''); });
 
-$('checkout').addEventListener('click', () => {
+$('checkout').addEventListener('click', async () => {
   if (!cart.length) return;
   const t = cartTotals();
   const payment = $('payment').value;
   const paidInput = $('paid').value;
   const paid = paidInput === '' ? t.total : Number(paidInput);
   if (payment === 'Cash' && paid < t.total) {
-    return setMsg('Amount paid is less than the total.', 'error');
-  }
-  for (const l of cart) {
-    const p = findProduct(l.productId);
-    if (l.qty > p.stock) return setMsg(`Not enough stock for ${p.name}.`, 'error');
+    return setMsg('sell-msg', 'Amount paid is less than the total.', 'error');
   }
 
-  const now = new Date();
-  const sale = {
-    id: uid(),
-    receiptNo: 'KP-' + String(sales.length + 1).padStart(5, '0'),
-    timestamp: now.toISOString(),
-    date: localDate(now),
-    items: cart.map((l) => {
-      const p = findProduct(l.productId);
-      return { productId: p.id, code: p.code, name: p.name, price: p.price, qty: l.qty };
-    }),
-    subtotal: t.subtotal,
-    discountPct: t.pct,
-    discount: t.discount,
-    total: t.total,
-    payment,
-    paid,
-    change: Math.max(0, paid - t.total),
-  };
+  $('checkout').disabled = true;
+  setMsg('sell-msg', 'Saving sale…');
+  // The database recalculates totals from its own prices and checks stock.
+  const { data: sale, error } = await db.rpc('complete_sale', {
+    p_items: cart.map((l) => ({ product_id: l.productId, qty: l.qty })),
+    p_discount_pct: t.pct,
+    p_payment: payment,
+    p_paid: paid,
+  });
+  if (error) {
+    setMsg('sell-msg', error.message, 'error');
+    $('checkout').disabled = false;
+    loadProducts();
+    return;
+  }
 
-  cart.forEach((l) => { findProduct(l.productId).stock -= l.qty; });
-  sales.push(sale);
-  save(STORE_KEYS.products, products);
-  save(STORE_KEYS.sales, sales);
-
-  cart = [];
-  $('discount').value = 0;
-  $('paid').value = '';
-  renderCart();
-  renderResults();
-  setMsg(`Sale ${sale.receiptNo} completed.`, 'ok');
-  showReceipt(sale);
+  const { data: items } = await db.from('sale_items').select('*').eq('sale_id', sale.id);
+  resetSale();
+  await loadProducts();
+  setMsg('sell-msg', `Sale ${sale.receipt_no} completed.`, 'ok');
+  showReceipt({ ...sale, sale_items: items || [] });
 });
 
 // ---------- Receipt ----------
 function showReceipt(sale) {
-  const time = new Date(sale.timestamp).toLocaleString();
+  const time = new Date(sale.created_at).toLocaleString();
+  const discountPct = Number(sale.discount_pct);
   $('receipt').innerHTML = `
     <h3>Kairuki Pharmaceutical</h3>
-    <p style="text-align:center">Receipt ${sale.receiptNo}<br>${time}</p>
+    <p style="text-align:center">Receipt ${escapeHtml(sale.receipt_no)}<br>${time}</p>
+    <p style="text-align:center">Served by ${escapeHtml(sale.cashier_email || '—')}</p>
     <hr>
-    ${sale.items.map((i) => `
+    ${sale.sale_items.map((i) => `
       <div class="line"><span>${escapeHtml(i.name)}</span></div>
       <div class="line"><span>&nbsp;&nbsp;${i.qty} × ${money(i.price)}</span><span>${money(i.qty * i.price)}</span></div>
     `).join('')}
     <hr>
     <div class="line"><span>Subtotal</span><span>${money(sale.subtotal)}</span></div>
-    ${sale.discount ? `<div class="line"><span>Discount (${sale.discountPct}%)</span><span>-${money(sale.discount)}</span></div>` : ''}
+    ${Number(sale.discount) ? `<div class="line"><span>Discount (${discountPct}%)</span><span>-${money(sale.discount)}</span></div>` : ''}
     <div class="line"><strong>Total</strong><strong>${money(sale.total)}</strong></div>
     <div class="line"><span>Paid (${escapeHtml(sale.payment)})</span><span>${money(sale.paid)}</span></div>
     <div class="line"><span>Change</span><span>${money(sale.change)}</span></div>
@@ -233,96 +344,93 @@ function showReceipt(sale) {
 $('receipt-close').addEventListener('click', () => $('receipt-dialog').close());
 $('receipt-print').addEventListener('click', () => window.print());
 
-// ---------- Products ----------
-function renderProducts() {
-  $('products-body').innerHTML = products.map((p) => `
-    <tr class="${p.stock <= LOW_STOCK ? 'low' : ''}">
-      <td>${escapeHtml(p.code)}</td>
-      <td>${escapeHtml(p.name)}</td>
-      <td class="num">${money(p.price)}</td>
-      <td class="num">${p.stock}${p.stock <= LOW_STOCK ? ' ⚠' : ''}</td>
-      <td class="num">
-        <button class="link" data-edit="${p.id}">Edit</button>
-        <button class="link danger" data-delete="${p.id}">Delete</button>
-      </td>
-    </tr>`).join('');
-}
-
-function resetProductForm() {
-  $('product-form').reset();
-  $('p-id').value = '';
-}
-
-$('product-form').addEventListener('submit', (e) => {
-  e.preventDefault();
-  const id = $('p-id').value;
-  const data = {
-    code: $('p-code').value.trim(),
-    name: $('p-name').value.trim(),
-    price: Number($('p-price').value),
-    stock: Math.floor(Number($('p-stock').value)),
-  };
-  const clash = products.find((p) => p.code.toLowerCase() === data.code.toLowerCase() && p.id !== id);
-  if (clash) return alert(`Code "${data.code}" is already used by ${clash.name}.`);
-
-  if (id) Object.assign(findProduct(id), data);
-  else products.push({ id: uid(), ...data });
-  save(STORE_KEYS.products, products);
-  resetProductForm();
-  renderProducts();
-});
-
-$('p-reset').addEventListener('click', resetProductForm);
-
-$('products-body').addEventListener('click', (e) => {
-  const editId = e.target.dataset.edit;
-  const deleteId = e.target.dataset.delete;
-  if (editId) {
-    const p = findProduct(editId);
-    $('p-id').value = p.id;
-    $('p-code').value = p.code;
-    $('p-name').value = p.name;
-    $('p-price').value = p.price;
-    $('p-stock').value = p.stock;
-    $('p-name').focus();
-  }
-  if (deleteId) {
-    const p = findProduct(deleteId);
-    if (!confirm(`Delete ${p.name}?`)) return;
-    products = products.filter((x) => x.id !== deleteId);
-    cart = cart.filter((l) => l.productId !== deleteId);
-    save(STORE_KEYS.products, products);
-    renderProducts();
-    renderCart();
-  }
-});
-
 // ---------- History ----------
 $('history-date').value = localDate(new Date());
-$('history-date').addEventListener('change', renderHistory);
+$('history-date').addEventListener('change', loadHistory);
 
-function renderHistory() {
-  const day = $('history-date').value;
-  const list = sales.filter((s) => s.date === day).reverse();
-  $('history-body').innerHTML = list.map((s) => `
+async function loadHistory() {
+  const [y, m, d] = $('history-date').value.split('-').map(Number);
+  if (!y) return;
+  const start = new Date(y, m - 1, d);
+  const end = new Date(y, m - 1, d + 1);
+  const { data, error } = await db.from('sales')
+    .select('*, sale_items(*)')
+    .gte('created_at', start.toISOString())
+    .lt('created_at', end.toISOString())
+    .order('created_at', { ascending: false });
+  if (error) {
+    $('history-empty').textContent = 'Could not load sales: ' + error.message;
+    $('history-empty').style.display = 'block';
+    return;
+  }
+  historySales = data;
+  const itemCount = (s) => s.sale_items.reduce((n, i) => n + i.qty, 0);
+  $('history-body').innerHTML = data.map((s) => `
     <tr>
-      <td>${s.receiptNo}</td>
-      <td>${new Date(s.timestamp).toLocaleTimeString()}</td>
-      <td>${s.items.reduce((n, i) => n + i.qty, 0)}</td>
+      <td>${escapeHtml(s.receipt_no)}</td>
+      <td>${new Date(s.created_at).toLocaleTimeString()}</td>
+      <td>${escapeHtml(s.cashier_email || '—')}</td>
+      <td>${itemCount(s)}</td>
       <td>${escapeHtml(s.payment)}</td>
       <td class="num">${money(s.total)}</td>
       <td class="num"><button class="link" data-receipt="${s.id}">Receipt</button></td>
     </tr>`).join('');
-  $('history-empty').style.display = list.length ? 'none' : 'block';
-  $('sum-count').textContent = list.length;
-  $('sum-revenue').textContent = money(list.reduce((n, s) => n + s.total, 0));
-  $('sum-items').textContent = list.reduce((n, s) => n + s.items.reduce((m, i) => m + i.qty, 0), 0);
+  $('history-empty').textContent = 'No sales on this date.';
+  $('history-empty').style.display = data.length ? 'none' : 'block';
+  $('sum-count').textContent = data.length;
+  $('sum-revenue').textContent = money(data.reduce((n, s) => n + Number(s.total), 0));
+  $('sum-items').textContent = data.reduce((n, s) => n + itemCount(s), 0);
 }
 
 $('history-body').addEventListener('click', (e) => {
   const id = e.target.dataset.receipt;
-  if (id) showReceipt(sales.find((s) => s.id === id));
+  if (id) showReceipt(historySales.find((s) => s.id === id));
 });
 
-renderResults();
-renderCart();
+// ---------- Staff (admin) ----------
+async function loadStaff() {
+  const { data, error } = await db.from('staff').select('*').order('email');
+  if (error) return setMsg('staff-msg', error.message, 'error');
+  $('staff-body').innerHTML = data.map((s) => {
+    const self = s.email === user.email.toLowerCase();
+    return `<tr>
+      <td>${escapeHtml(s.email)}${self ? ' <span class="muted">(you)</span>' : ''}</td>
+      <td>
+        <select data-role="${escapeHtml(s.email)}" ${self ? 'disabled' : ''}>
+          <option value="cashier" ${s.role === 'cashier' ? 'selected' : ''}>Cashier</option>
+          <option value="admin" ${s.role === 'admin' ? 'selected' : ''}>Admin</option>
+        </select>
+      </td>
+      <td class="num">${self ? '' : `<button class="link danger" data-remove-staff="${escapeHtml(s.email)}">Remove</button>`}</td>
+    </tr>`;
+  }).join('');
+}
+
+$('staff-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const email = $('s-email').value.trim().toLowerCase();
+  const { error } = await db.from('staff').insert({ email, role: $('s-role').value });
+  if (error) {
+    const text = error.code === '23505' ? `${email} is already on the staff list.` : error.message;
+    return setMsg('staff-msg', text, 'error');
+  }
+  setMsg('staff-msg', `Added ${email}. They can now create an account with this email.`, 'ok');
+  $('staff-form').reset();
+  loadStaff();
+});
+
+$('staff-body').addEventListener('change', async (e) => {
+  const email = e.target.dataset.role;
+  if (!email) return;
+  const { error } = await db.from('staff').update({ role: e.target.value }).eq('email', email);
+  setMsg('staff-msg', error ? error.message : `Updated ${email}.`, error ? 'error' : 'ok');
+  loadStaff();
+});
+
+$('staff-body').addEventListener('click', async (e) => {
+  const email = e.target.dataset.removeStaff;
+  if (!email || !confirm(`Remove ${email} from staff? They will lose access.`)) return;
+  const { error } = await db.from('staff').delete().eq('email', email);
+  setMsg('staff-msg', error ? error.message : `Removed ${email}.`, error ? 'error' : 'ok');
+  loadStaff();
+});

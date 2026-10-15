@@ -7,96 +7,155 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <header class="topbar">
-    <h1>Kairuki Pharmaceutical <span>POS</span></h1>
-    <nav>
-      <button class="tab active" data-view="sell">Sell</button>
-      <button class="tab" data-view="products">Products</button>
-      <button class="tab" data-view="history">Sales history</button>
-    </nav>
-  </header>
+  <!-- Auth -->
+  <div id="auth-screen" class="center-screen" hidden>
+    <div class="panel auth-card">
+      <h1>Kairuki Pharmaceutical <span>POS</span></h1>
+      <form id="auth-form">
+        <label>Email <input id="auth-email" type="email" required autocomplete="email"></label>
+        <label>Password <input id="auth-password" type="password" required minlength="6" autocomplete="current-password"></label>
+        <button type="submit" id="auth-submit">Sign in</button>
+      </form>
+      <p class="muted small">
+        <span id="auth-toggle-text">New staff member?</span>
+        <button type="button" class="link" id="auth-toggle">Create an account</button>
+      </p>
+      <p id="auth-msg" class="msg"></p>
+    </div>
+  </div>
 
-  <main>
-    <!-- Sell -->
-    <section id="view-sell" class="view active">
-      <div class="sell-layout">
+  <div id="denied-screen" class="center-screen" hidden>
+    <div class="panel auth-card">
+      <h2>Access pending</h2>
+      <p>You're signed in as <strong id="denied-email"></strong>, but this account isn't on the staff list yet. Ask an admin to add your email, then sign in again.</p>
+      <button class="secondary" data-signout>Sign out</button>
+    </div>
+  </div>
+
+  <div id="loading-screen" class="center-screen"><p class="muted">Loading…</p></div>
+
+  <!-- App -->
+  <div id="app" hidden>
+    <header class="topbar">
+      <h1>Kairuki Pharmaceutical <span>POS</span></h1>
+      <nav>
+        <button class="tab active" data-view="sell">Sell</button>
+        <button class="tab" data-view="products">Products</button>
+        <button class="tab" data-view="history">Sales history</button>
+        <button class="tab admin-only" data-view="staff">Staff</button>
+      </nav>
+      <div class="user">
+        <span id="user-email"></span> <span id="user-role" class="badge"></span>
+        <button class="tab" data-signout>Sign out</button>
+      </div>
+    </header>
+
+    <main>
+      <!-- Sell -->
+      <section id="view-sell" class="view active">
+        <div class="sell-layout">
+          <div class="panel">
+            <input id="search" type="search" placeholder="Search medicine by name or code…" autocomplete="off">
+            <ul id="product-results" class="product-list"></ul>
+          </div>
+          <div class="panel cart">
+            <h2>Current sale</h2>
+            <table>
+              <thead><tr><th>Item</th><th>Qty</th><th class="num">Total</th><th></th></tr></thead>
+              <tbody id="cart-body"></tbody>
+            </table>
+            <p id="cart-empty" class="muted">No items yet. Click a product to add it.</p>
+            <div class="totals">
+              <label>Discount (%) <input id="discount" type="number" min="0" max="100" value="0"></label>
+              <div><span>Subtotal</span><span id="subtotal">0</span></div>
+              <div><span>Discount</span><span id="discount-amount">0</span></div>
+              <div class="grand"><span>Total</span><span id="total">0</span></div>
+              <label>Payment
+                <select id="payment">
+                  <option>Cash</option>
+                  <option>M-Pesa</option>
+                  <option>Card</option>
+                  <option>Insurance</option>
+                </select>
+              </label>
+              <label>Amount paid <input id="paid" type="number" min="0" step="any"></label>
+              <div><span>Change</span><span id="change">0</span></div>
+            </div>
+            <div class="actions">
+              <button id="clear-cart" class="secondary">Clear</button>
+              <button id="checkout">Complete sale</button>
+            </div>
+            <p id="sell-msg" class="msg"></p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Products -->
+      <section id="view-products" class="view">
+        <div class="panel admin-only">
+          <h2>Add / edit product</h2>
+          <form id="product-form" class="product-form">
+            <input type="hidden" id="p-id">
+            <input id="p-code" placeholder="Code" required>
+            <input id="p-name" placeholder="Name" required>
+            <input id="p-price" type="number" min="0" step="any" placeholder="Price (TZS)" required>
+            <input id="p-stock" type="number" min="0" step="1" placeholder="Stock" required>
+            <button type="submit">Save</button>
+            <button type="button" id="p-reset" class="secondary">Reset</button>
+          </form>
+          <p id="product-msg" class="msg"></p>
+        </div>
         <div class="panel">
-          <input id="search" type="search" placeholder="Search medicine by name or code…" autocomplete="off">
-          <ul id="product-results" class="product-list"></ul>
-        </div>
-        <div class="panel cart">
-          <h2>Current sale</h2>
           <table>
-            <thead><tr><th>Item</th><th>Qty</th><th class="num">Total</th><th></th></tr></thead>
-            <tbody id="cart-body"></tbody>
+            <thead><tr><th>Code</th><th>Name</th><th class="num">Price</th><th class="num">Stock</th><th class="admin-only"></th></tr></thead>
+            <tbody id="products-body"></tbody>
           </table>
-          <p id="cart-empty" class="muted">No items yet. Click a product to add it.</p>
-          <div class="totals">
-            <label>Discount (%) <input id="discount" type="number" min="0" max="100" value="0"></label>
-            <div><span>Subtotal</span><span id="subtotal">0</span></div>
-            <div><span>Discount</span><span id="discount-amount">0</span></div>
-            <div class="grand"><span>Total</span><span id="total">0</span></div>
-            <label>Payment
-              <select id="payment">
-                <option>Cash</option>
-                <option>M-Pesa</option>
-                <option>Card</option>
-                <option>Insurance</option>
-              </select>
-            </label>
-            <label>Amount paid <input id="paid" type="number" min="0" step="any"></label>
-            <div><span>Change</span><span id="change">0</span></div>
-          </div>
-          <div class="actions">
-            <button id="clear-cart" class="secondary">Clear</button>
-            <button id="checkout">Complete sale</button>
-          </div>
-          <p id="sell-msg" class="msg"></p>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- Products -->
-    <section id="view-products" class="view">
-      <div class="panel">
-        <h2>Add / edit product</h2>
-        <form id="product-form" class="product-form">
-          <input type="hidden" id="p-id">
-          <input id="p-code" placeholder="Code" required>
-          <input id="p-name" placeholder="Name" required>
-          <input id="p-price" type="number" min="0" step="any" placeholder="Price (TZS)" required>
-          <input id="p-stock" type="number" min="0" step="1" placeholder="Stock" required>
-          <button type="submit">Save</button>
-          <button type="button" id="p-reset" class="secondary">Reset</button>
-        </form>
-      </div>
-      <div class="panel">
-        <table>
-          <thead><tr><th>Code</th><th>Name</th><th class="num">Price</th><th class="num">Stock</th><th></th></tr></thead>
-          <tbody id="products-body"></tbody>
-        </table>
-      </div>
-    </section>
-
-    <!-- History -->
-    <section id="view-history" class="view">
-      <div class="panel">
-        <label>Date <input id="history-date" type="date"></label>
-        <div class="summary">
-          <div><span>Sales</span><strong id="sum-count">0</strong></div>
-          <div><span>Revenue</span><strong id="sum-revenue">0</strong></div>
-          <div><span>Items sold</span><strong id="sum-items">0</strong></div>
+      <!-- History -->
+      <section id="view-history" class="view">
+        <div class="panel">
+          <label>Date <input id="history-date" type="date"></label>
+          <div class="summary">
+            <div><span>Sales</span><strong id="sum-count">0</strong></div>
+            <div><span>Revenue</span><strong id="sum-revenue">0</strong></div>
+            <div><span>Items sold</span><strong id="sum-items">0</strong></div>
+          </div>
         </div>
-      </div>
-      <div class="panel">
-        <table>
-          <thead><tr><th>Receipt</th><th>Time</th><th>Items</th><th>Payment</th><th class="num">Total</th><th></th></tr></thead>
-          <tbody id="history-body"></tbody>
-        </table>
-        <p id="history-empty" class="muted">No sales on this date.</p>
-      </div>
-    </section>
-  </main>
+        <div class="panel">
+          <table>
+            <thead><tr><th>Receipt</th><th>Time</th><th>Cashier</th><th>Items</th><th>Payment</th><th class="num">Total</th><th></th></tr></thead>
+            <tbody id="history-body"></tbody>
+          </table>
+          <p id="history-empty" class="muted">No sales on this date.</p>
+        </div>
+      </section>
+
+      <!-- Staff (admin) -->
+      <section id="view-staff" class="view">
+        <div class="panel">
+          <h2>Add staff member</h2>
+          <form id="staff-form" class="staff-form">
+            <input id="s-email" type="email" placeholder="Email" required>
+            <select id="s-role">
+              <option value="cashier">Cashier</option>
+              <option value="admin">Admin</option>
+            </select>
+            <button type="submit">Add</button>
+          </form>
+          <p class="muted small">Cashiers can sell and view history. Admins can also manage products and staff. After being added, staff create an account with the same email.</p>
+          <p id="staff-msg" class="msg"></p>
+        </div>
+        <div class="panel">
+          <table>
+            <thead><tr><th>Email</th><th>Role</th><th></th></tr></thead>
+            <tbody id="staff-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+  </div>
 
   <!-- Receipt dialog -->
   <dialog id="receipt-dialog">
@@ -107,6 +166,8 @@
     </div>
   </dialog>
 
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

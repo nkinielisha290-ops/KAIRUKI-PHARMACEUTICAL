@@ -134,3 +134,17 @@ dialog { border: none; border-radius: 8px; padding: 20px; width: min(380px, 92vw
   dialog { position: static; box-shadow: none; width: 100%; }
   dialog .actions { display: none; }
 }
+
+/* Auth & roles */
+[hidden] { display: none !important; }
+.center-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.auth-card { width: min(380px, 100%); }
+.auth-card h1 { font-size: 1.2rem; margin-top: 0; color: var(--accent); }
+.auth-card h1 span { font-weight: 400; }
+.auth-card form { display: grid; gap: 12px; }
+.small { font-size: .85rem; }
+.user { display: flex; align-items: center; gap: 8px; font-size: .9rem; }
+.badge { background: rgba(255,255,255,.2); border-radius: 999px; padding: 2px 8px; font-size: .75rem; text-transform: capitalize; }
+body:not(.is-admin) .admin-only { display: none !important; }
+.staff-form { display: grid; grid-template-columns: 2fr 1fr auto; gap: 8px; }
+@media (max-width: 600px) { .staff-form { grid-template-columns: 1fr; } }

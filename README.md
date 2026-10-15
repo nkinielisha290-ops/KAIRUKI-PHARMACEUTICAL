@@ -1,14 +1,28 @@
 # Kairuki Pharmaceutical POS
 
-A simple point-of-sale for a pharmacy, written in plain HTML, CSS and JavaScript. There is no build step.
+A point-of-sale for a pharmacy, written in plain HTML, CSS and JavaScript. There is no build step. Data is stored in Supabase, so every device shares the same products and sales.
+
+Live: https://kairuki-pharmaceutical-pos.vercel.app
 
 ## Features
-- **Sell**: search medicines, add them to a cart, apply a discount, choose a payment method (Cash, M-Pesa, Card, Insurance), see the change due, and complete the sale.
-- **Receipts**: a printable receipt for each sale.
-- **Products**: add, edit and delete products. Low stock (10 or fewer) is highlighted, and stock goes down automatically after each sale.
-- **Sales history**: daily sales count, revenue and items sold, with each receipt available again.
+- **Staff login**: email and password through Supabase Auth. Only emails on the staff list can use the system.
+- **Roles**: *cashiers* can sell and view history. *Admins* can also manage products and staff.
+- **Sell**: search medicines, build a cart, apply a discount, pick a payment method (Cash, M-Pesa, Card, Insurance), and see the change due.
+- **Safe checkout**: the `complete_sale` database function locks stock, recalculates totals from database prices, and records the sale in one step.
+- **Receipts**: numbered (KP-00001…), printable, and show who served the customer.
+- **Products**: low stock (10 or fewer) is highlighted, and stock goes down with each sale.
+- **Sales history**: daily count, revenue and items sold per date, with each receipt available again.
 
-## Run
-Open `index.html` in a browser, or serve the folder with any static server.
+## Files
+- `index.html`, `styles.css`, `app.js`: the app.
+- `config.js`: the Supabase URL and publishable key. Both are public by design. Access is enforced by row-level security.
+- `supabase/schema.sql`: the database schema, security policies and checkout function.
 
-Data is saved in the browser's `localStorage`, so it stays on one device and one browser.
+## Adding staff
+1. An admin opens **Staff** and adds the person's email with a role.
+2. The person opens the site, clicks **Create an account** with that email, and confirms it from their inbox.
+
+The first admin is `nkinielisha290@gmail.com`.
+
+## Run locally
+Serve the folder with any static server, for example `npx serve .`.
