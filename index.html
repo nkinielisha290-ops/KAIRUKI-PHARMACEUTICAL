@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Kairuki Pharmaceutical POS</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Kairuki Pharmaceutical <span>POS</span></h1>
+    <nav>
+      <button class="tab active" data-view="sell">Sell</button>
+      <button class="tab" data-view="products">Products</button>
+      <button class="tab" data-view="history">Sales history</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Sell -->
+    <section id="view-sell" class="view active">
+      <div class="sell-layout">
+        <div class="panel">
+          <input id="search" type="search" placeholder="Search medicine by name or code…" autocomplete="off">
+          <ul id="product-results" class="product-list"></ul>
+        </div>
+        <div class="panel cart">
+          <h2>Current sale</h2>
+          <table>
+            <thead><tr><th>Item</th><th>Qty</th><th class="num">Total</th><th></th></tr></thead>
+            <tbody id="cart-body"></tbody>
+          </table>
+          <p id="cart-empty" class="muted">No items yet. Click a product to add it.</p>
+          <div class="totals">
+            <label>Discount (%) <input id="discount" type="number" min="0" max="100" value="0"></label>
+            <div><span>Subtotal</span><span id="subtotal">0</span></div>
+            <div><span>Discount</span><span id="discount-amount">0</span></div>
+            <div class="grand"><span>Total</span><span id="total">0</span></div>
+            <label>Payment
+              <select id="payment">
+                <option>Cash</option>
+                <option>M-Pesa</option>
+                <option>Card</option>
+                <option>Insurance</option>
+              </select>
+            </label>
+            <label>Amount paid <input id="paid" type="number" min="0" step="any"></label>
+            <div><span>Change</span><span id="change">0</span></div>
+          </div>
+          <div class="actions">
+            <button id="clear-cart" class="secondary">Clear</button>
+            <button id="checkout">Complete sale</button>
+          </div>
+          <p id="sell-msg" class="msg"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Products -->
+    <section id="view-products" class="view">
+      <div class="panel">
+        <h2>Add / edit product</h2>
+        <form id="product-form" class="product-form">
+          <input type="hidden" id="p-id">
+          <input id="p-code" placeholder="Code" required>
+          <input id="p-name" placeholder="Name" required>
+          <input id="p-price" type="number" min="0" step="any" placeholder="Price (TZS)" required>
+          <input id="p-stock" type="number" min="0" step="1" placeholder="Stock" required>
+          <button type="submit">Save</button>
+          <button type="button" id="p-reset" class="secondary">Reset</button>
+        </form>
+      </div>
+      <div class="panel">
+        <table>
+          <thead><tr><th>Code</th><th>Name</th><th class="num">Price</th><th class="num">Stock</th><th></th></tr></thead>
+          <tbody id="products-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- History -->
+    <section id="view-history" class="view">
+      <div class="panel">
+        <label>Date <input id="history-date" type="date"></label>
+        <div class="summary">
+          <div><span>Sales</span><strong id="sum-count">0</strong></div>
+          <div><span>Revenue</span><strong id="sum-revenue">0</strong></div>
+          <div><span>Items sold</span><strong id="sum-items">0</strong></div>
+        </div>
+      </div>
+      <div class="panel">
+        <table>
+          <thead><tr><th>Receipt</th><th>Time</th><th>Items</th><th>Payment</th><th class="num">Total</th><th></th></tr></thead>
+          <tbody id="history-body"></tbody>
+        </table>
+        <p id="history-empty" class="muted">No sales on this date.</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- Receipt dialog -->
+  <dialog id="receipt-dialog">
+    <div id="receipt"></div>
+    <div class="actions">
+      <button class="secondary" id="receipt-close">Close</button>
+      <button id="receipt-print">Print</button>
+    </div>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>
