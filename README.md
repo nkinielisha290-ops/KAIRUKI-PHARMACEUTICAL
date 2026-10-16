@@ -1,5 +1,7 @@
 # Kairuki Pharmaceutical POS
 
+> This repository also holds **Kairuki Clinic**, a React clinic management system with an online booking form. See [`clinic/README.md`](clinic/README.md).
+
 A point-of-sale for a pharmacy, written in plain HTML, CSS and JavaScript. There is no build step. Data is stored in Supabase, so every device shares the same products and sales.
 
 Live: https://kairuki-pharmaceutical-pos.vercel.app
@@ -17,6 +19,8 @@ Live: https://kairuki-pharmaceutical-pos.vercel.app
 - `index.html`, `styles.css`, `app.js`: the app.
 - `config.js`: the Supabase URL and publishable key. Both are public by design. Access is enforced by row-level security.
 - `supabase/schema.sql`: the database schema, security policies and checkout function.
+- `supabase/clinic_schema.sql`: the clinic tables and booking functions.
+- `clinic/`: the clinic management app.
 
 ## Adding staff
 1. An admin opens **Staff** and adds the person's email with a role.
